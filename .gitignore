@@ -1,0 +1,5 @@
+*.csv
+*.tsv
+*.gtf
+*.txt
+.DS_Store
