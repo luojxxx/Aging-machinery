@@ -1,13 +1,11 @@
-
 import pandas as pd
+import networkx as nx
 import os
-from datetime import datetime
 from tqdm import tqdm
 import statistics
 import seaborn as sns
 import matplotlib.pyplot as plt
-import multiprocessing
-from graph_tool import topology, Graph
+import networkx as nx
 
 # loading and cleaning ENSG converter
 def createGeneConverter():
@@ -34,16 +32,16 @@ def createRegulatory(regulatory_filepath):
     # loading, cleaning, and permutating regulatory dataset
     print(f'Loading: {regulatory_filepath}')
     regulatory = pd.read_csv(regulatory_filepath, index_col=0)
-
+    
     exceptions = []
     for name in regulatory.index:
         try:
             regulatory = regulatory.rename(index={name: geneName_geneId[name]})
         except:
             exceptions.append(name)
-
+    
     print(f'Row exception count: {len(exceptions)}')
-
+    
     for exc in exceptions:
         regulatory = regulatory.drop(exc)
 
@@ -61,19 +59,19 @@ def createRegulatory(regulatory_filepath):
     #     except:
     #         exceptions.append(name)
 
-
+    
     print(f'Column exception count: {len(exceptions)}')
 
     for exc in exceptions:
         regulatory = regulatory.drop(exc)
 
-
+    
     def inverse(x):
         return 1/x
-
+    
     def absolute(x):
         return abs(x)
-
+    
     regulatory = regulatory.map(inverse)
     regulatory = regulatory.map(absolute)
 
@@ -83,16 +81,16 @@ def createEndpoints(filepath):
     geneName_geneId, geneId_geneName = createGeneConverter()
     # loading and cleaning dataset
     endpoints = pd.read_csv(filepath, sep='\t', index_col=0)
-
+    
     exceptions = []
     for name in endpoints.index:
         try:
             endpoints = endpoints.rename(index={name: geneName_geneId[name.upper()]})
         except:
             exceptions.append(name)
-
+    
     print(f'Endpoints exception count: {len(exceptions)}')
-
+    
     for exc in exceptions:
         endpoints = endpoints.drop(exc)
 
@@ -103,79 +101,45 @@ def createRandomEndpoints(regulatory, num, seed):
     return list(rand.index)
 
 def createGraph(regulatory, endpoints):
+    # creating network
     regMatrix = regulatory.to_numpy().tolist()
+    
+    G = nx.Graph()
     nodes = list(set(list(regulatory.index) + regulatory.columns.tolist() + endpoints))
-    g = Graph()
-    g.set_directed(False)
-    name_prop = g.new_vertex_property('string')
-    vertexNameDic = {}
-    for node in nodes:
-        v = g.add_vertex()
-        name_prop[v] = node
-        vertexNameDic[v] = node
-    g.vertex_properties['name'] = name_prop
-    nameVertexDic = {v: k for k, v in vertexNameDic.items()}
-
+    G.add_nodes_from(nodes)
     edgeCount = 0
-    g.ep.weight = g.new_edge_property("double")
     for rowName, row in zip(regulatory.index, regMatrix):
         for columnName, cell in zip(regulatory.columns.tolist(), row):
-
-            rowVertex = nameVertexDic[rowName]
-            columnVertex = nameVertexDic[columnName]
-
-            edge = g.add_edge(rowVertex, columnVertex)
-            g.ep.weight[edge] = cell
+            # if cell < 10:
+            G.add_edge(rowName, columnName, weight=cell)
             edgeCount += 1
-
+    
     print(f'EdgeCount: {edgeCount}')
 
-    return g, nameVertexDic, vertexNameDic
+    return G
 
 def processData(data):
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     dataset = data['dataset']
     origins = data['origins']
     endpoints = data['endpoints']
     regulatory = createRegulatory(f'data/{dataset}')
-    g, nameVertexDic, vertexNameDic = createGraph(regulatory, endpoints)
-
+    G = createGraph(regulatory, endpoints)
+    
     count = {}
-    exceptionCount = 0
-    for i, origin in enumerate(origins):
-        for j, endpoint in enumerate(endpoints):
-            path = topology.shortest_path(g, nameVertexDic[origin], nameVertexDic[endpoint], weights=g.ep.weight)
-            path = path[0]
-            path = [vertexNameDic[node] for node in path]
-            # print(f'origin({i}/{len(origins)}):{nameVertexDic[origin]} endpoint({j}/{len(endpoints)}):{nameVertexDic[endpoint]} path:{path}')
-            if len(path) == 0:
-                continue
-            path.pop(0)
-            path.pop()
-            for node in path:
-                if node not in count:
-                    count[node] = 1
-                else:
-                    count[node] += 1
-            # print(f'count:{count}')
-    return count
-
-def connectionEnrichment(origins, endpoints):
-    datasets = os.listdir('data')
-    datasets = [dataset for dataset in datasets if dataset != '.DS_Store']
-    count = {}
-
-    data = [{'dataset': dataset, 'origins': origins, 'endpoints': endpoints} for dataset in datasets]
-    with multiprocessing.Pool(processes=12) as pool:
-        results = pool.map(processData, data)
-    # results = [processData(data[0])]
-
-    for dic in results:
-        for key, val in dic.items():
-            if key not in count:
-                count[key] = val
-            else:
-                count[key] += val
+    for origin in origins:
+        for endpoint in endpoints:
+            try:
+                path = nx.shortest_path(G, origin, endpoint, weight="weight")
+                path.pop(0)
+                path.pop()
+                for node in path:
+                    if node not in count:
+                        count[node] = 1
+                    else:
+                        count[node] += 1
+            except:
+                pass
+        
     return count
 
 def sortDic(dic):
@@ -186,3 +150,30 @@ def printResultsWithStats(dic):
     print(f'Average: {statistics.mean(dic.values())}')
     print(f'Median: {statistics.median(dic.values())}')
     print(dic)
+
+import multiprocessing
+
+def connectionEnrichment(origins, endpoints):
+    datasets = os.listdir('data')
+    datasets.remove('.DS_Store')
+    count = {}
+
+    data = [{'dataset': dataset, 'origins': origins, 'endpoints': endpoints} for dataset in datasets]
+    with multiprocessing.Pool(processes=16) as pool:
+        results = pool.map(processData, data)
+            
+    for dic in results:
+        for key, val in dic.items():
+            if key not in count:
+                count[key] = 1
+            else:
+                count[key] += 1
+    return count
+
+# multi-dataset aging gene enrichment
+if __name__ == "__main__":
+    globalAgingGenes = createEndpoints('global_aging_genes.tsv')
+    agingCount = connectionEnrichment(globalAgingGenes, globalAgingGenes)
+
+    ## printing results
+    printResultsWithStats(sortDic(agingCount))

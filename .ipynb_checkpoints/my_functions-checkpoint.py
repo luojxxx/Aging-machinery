@@ -146,36 +146,35 @@ def processData(data):
         for j, endpoint in enumerate(endpoints):
             path = topology.shortest_path(g, nameVertexDic[origin], nameVertexDic[endpoint], weights=g.ep.weight)
             path = path[0]
-            path = [vertexNameDic[node] for node in path]
-            # print(f'origin({i}/{len(origins)}):{nameVertexDic[origin]} endpoint({j}/{len(endpoints)}):{nameVertexDic[endpoint]} path:{path}')
+            # print(i, j, len(origins), len(endpoints))
+            print(f'origin{i}:{nameVertexDic[origin]} endpoint{j}:{nameVertexDic[endpoint]} path:{path}')
             if len(path) == 0:
                 continue
             path.pop(0)
             path.pop()
-            for node in path:
+            for node in [vertexNameDic[node] for node in path]:
                 if node not in count:
                     count[node] = 1
                 else:
                     count[node] += 1
-            # print(f'count:{count}')
     return count
 
 def connectionEnrichment(origins, endpoints):
     datasets = os.listdir('data')
-    datasets = [dataset for dataset in datasets if dataset != '.DS_Store']
+    datasets.remove('.DS_Store')
     count = {}
 
     data = [{'dataset': dataset, 'origins': origins, 'endpoints': endpoints} for dataset in datasets]
-    with multiprocessing.Pool(processes=12) as pool:
-        results = pool.map(processData, data)
-    # results = [processData(data[0])]
+    # with multiprocessing.Pool(processes=12) as pool:
+    #     results = pool.map(processData, data)
+    results = [processData(data[0])]
 
     for dic in results:
         for key, val in dic.items():
             if key not in count:
-                count[key] = val
+                count[key] = 1
             else:
-                count[key] += val
+                count[key] += 1
     return count
 
 def sortDic(dic):
