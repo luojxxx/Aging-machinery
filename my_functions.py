@@ -4,8 +4,6 @@ import os
 from datetime import datetime
 from tqdm import tqdm
 import statistics
-import seaborn as sns
-import matplotlib.pyplot as plt
 import multiprocessing
 from graph_tool import topology, Graph
 
