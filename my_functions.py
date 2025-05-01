@@ -184,3 +184,84 @@ def printResultsWithStats(dic):
     print(f'Average: {statistics.mean(dic.values())}')
     print(f'Median: {statistics.median(dic.values())}')
     print(dic)
+
+def findNeighborsAndWeight(node, path, agingCount, g, nameVertexDic, vertexNameDic):
+    vertex = nameVertexDic[node]
+    neighbors = []
+    weights = []
+    pathVertices = [nameVertexDic[n] for n in path]
+    mainNodes = [nameVertexDic[key] for key, val in agingCount.items()]
+    for edge in g.edges():
+        a = list(edge)[0]
+        b = list(edge)[1]
+        if a == vertex and b not in pathVertices and b in mainNodes:
+            neighbors.append(vertexNameDic[b])
+            weights.append(g.ep.weight[edge])
+        if b == vertex and a not in pathVertices and a in mainNodes:
+            neighbors.append(vertexNameDic[a])
+            weights.append(g.ep.weight[edge])
+    return neighbors, weights
+
+def calcWeights(weights):
+    inverseWeights = [1/w for w in weights]
+    total = 1
+    for weight in inverseWeights:
+        total = total * weight
+    return total
+
+def recurseWrapper(start, recursionDepth, agingCount, filteredAgingCount, g, nameVertexDic, vertexNameDic):
+    def recurse(path, pathWeights, totalDepth, depth):
+        total = 0
+        # print(f'{totalDepth-depth}PATH:{path} total: {total}')
+        # print(f'{totalDepth-depth}PATHweights:{pathWeights}')
+        # print(f'{totalDepth-depth}TOTAL:{total}')
+        start = path[-1]
+        neighbors, neighborWeights = findNeighborsAndWeight(start, path, agingCount, g, nameVertexDic, vertexNameDic)
+        if depth == 0 or len(neighbors) == 0:
+            return 0
+        # print(f'~{totalDepth-depth}neighbors:{neighbors}')
+        # print(f'~{totalDepth-depth}neighborWeights{neighborWeights}')
+        for neighbor, neighborWeight in zip(neighbors, neighborWeights):
+            # print(f'~{totalDepth-depth}neighbor{path} neighbor: {neighbor} total:{total}')
+            if neighbor in filteredAgingCount:
+                # print(f'~{totalDepth-depth}neighbor{path} filtered: {neighbor}')
+                overlap = filteredAgingCount[neighbor]
+                score = overlap * calcWeights(pathWeights + [neighborWeight]) * (0.5**(totalDepth-depth))
+                total += score
+                # print('HIT', overlap, path, pathWeights + [neighborWeight], totalDepth, depth, score, total)
+        for neighbor, neighborWeight in zip(neighbors, neighborWeights):
+            # print('')
+            # print(f'~{totalDepth-depth}recursion1{path + [neighbor]} total:{total}')
+            total += recurse(path + [neighbor], pathWeights + [neighborWeight], totalDepth, depth - 1)
+            # print(f'~{totalDepth-depth}recursion2{path + [neighbor]} total:{total}')
+            # print('')
+
+        return total
+
+    return recurse([start], [], recursionDepth, recursionDepth)
+
+def processData2(data):
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    dataset = data['dataset']
+    agingCount = data['agingCount']
+    filteredAgingCount = data['filteredAgingCount']
+    regulatory = createRegulatory(f'data/{dataset}')
+    g, nameVertexDic, vertexNameDic = createGraph(regulatory, [])
+    return {k:recurseWrapper(k, 3, agingCount, filteredAgingCount, g, nameVertexDic, vertexNameDic) for k,v in agingCount.items()}
+
+def connectionEnrichment2(agingCount, filteredAgingCount):
+    datasets = os.listdir('data')
+    datasets = [dataset for dataset in datasets if dataset != '.DS_Store']
+    count = {}
+
+    data = [{'dataset': dataset, 'agingCount': agingCount, 'filteredAgingCount': filteredAgingCount} for dataset in datasets]
+    with multiprocessing.Pool(processes=12) as pool:
+        results = pool.map(processData2, data)
+
+    for dic in results:
+        for key, val in dic.items():
+            if key not in count:
+                count[key] = val
+            else:
+                count[key] += val
+    return count
